@@ -1,17 +1,26 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import TransactionForm from './components/TransactionForm';
-import DashboardCards from './components/DashboardCards';
-import DualChart from './components/ExpenseChart';
-import TransactionHistory from './components/TransactionHistory';
-import GuideModal from './components/GuideModal';
-import KeywordsManager from './components/KeywordsManager';
-import { HelpCircle, Tag, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useEffect } from "react";
+import axios from "axios";
+import TransactionForm from "./components/TransactionForm";
+import DashboardCards from "./components/DashboardCards";
+import DualChart from "./components/ExpenseChart";
+import TransactionHistory from "./components/TransactionHistory";
+import GuideModal from "./components/GuideModal";
+import KeywordsManager from "./components/KeywordsManager";
+import { HelpCircle, Tag, ChevronDown, ChevronUp } from "lucide-react";
 
 // Hardcoded userId for MVP as per plan
-const USER_ID = '11111111-1111-1111-1111-111111111111';
-const VITE_API_URL = import.meta.env.VITE_API_URL;
+const USER_ID = "11111111-1111-1111-1111-111111111111";
+const VITE_API_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 const LIMIT = 10;
+
+const normalizeApiBase = (value) => {
+  if (!value) return "http://localhost:3000";
+  return value.replace(/\/api\/transactions\/?$/, "").replace(/\/api\/?$/, "");
+};
+
+const API_BASE_URL = normalizeApiBase(VITE_API_URL);
+const TRANSACTIONS_URL = `${API_BASE_URL}/api/transactions`;
 
 function App() {
   const [transactions, setTransactions] = useState([]);
@@ -25,12 +34,14 @@ function App() {
   // Fetch initial or refreshed page 1 (replaces all transactions)
   const fetchTransactions = async () => {
     try {
-      const response = await axios.get(`${VITE_API_URL}?userId=${USER_ID}&limit=${LIMIT}&page=1`);
+      const response = await axios.get(TRANSACTIONS_URL, {
+        params: { userId: USER_ID, limit: LIMIT, page: 1 },
+      });
       setTransactions(response.data.data);
       setHasMore(response.data.meta.hasMore);
       setPage(1);
     } catch (error) {
-      console.error('Failed to fetch transactions:', error);
+      console.error("Failed to fetch transactions:", error);
     } finally {
       setLoading(false);
     }
@@ -41,12 +52,14 @@ function App() {
     setLoadingMore(true);
     try {
       const nextPage = page + 1;
-      const response = await axios.get(`${VITE_API_URL}?userId=${USER_ID}&limit=${LIMIT}&page=${nextPage}`);
-      setTransactions(prev => [...prev, ...response.data.data]);
+      const response = await axios.get(TRANSACTIONS_URL, {
+        params: { userId: USER_ID, limit: LIMIT, page: nextPage },
+      });
+      setTransactions((prev) => [...prev, ...response.data.data]);
       setHasMore(response.data.meta.hasMore);
       setPage(nextPage);
     } catch (error) {
-      console.error('Failed to load more transactions:', error);
+      console.error("Failed to load more transactions:", error);
     } finally {
       setLoadingMore(false);
     }
@@ -58,72 +71,81 @@ function App() {
 
   const handleAddTransaction = async (text) => {
     try {
-      await axios.post(VITE_API_URL, { text, userId: USER_ID });
+      await axios.post(TRANSACTIONS_URL, { text, userId: USER_ID });
       fetchTransactions();
     } catch (error) {
-      console.error('Failed to add transaction:', error);
-      alert('Gagal menyimpan transaksi. Periksa kembali format teks Anda.');
+      console.error("Failed to add transaction:", error);
+      alert("Gagal menyimpan transaksi. Periksa kembali format teks Anda.");
     }
   };
 
   const handleDeleteTransaction = async (id) => {
     try {
-      await axios.delete(`${VITE_API_URL}/${id}`);
+      await axios.delete(`${TRANSACTIONS_URL}/${id}`);
       fetchTransactions();
     } catch (error) {
-      console.error('Failed to delete transaction:', error);
-      alert('Gagal menghapus transaksi.');
+      console.error("Failed to delete transaction:", error);
+      alert("Gagal menghapus transaksi.");
     }
   };
 
   // Calculate metrics from all loaded transactions
-  const currentBalance = transactions.reduce((acc, curr) =>
-    curr.type === 'INCOME' ? acc + curr.amount : acc - curr.amount, 0);
+  const currentBalance = transactions.reduce(
+    (acc, curr) =>
+      curr.type === "INCOME" ? acc + curr.amount : acc - curr.amount,
+    0,
+  );
 
   const totalIncome = transactions
-    .filter(t => t.type === 'INCOME')
+    .filter((t) => t.type === "INCOME")
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   const totalExpense = transactions
-    .filter(t => t.type === 'EXPENSE')
+    .filter((t) => t.type === "EXPENSE")
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   // Prepare data for dual charts
   const buildCategoryMap = (type) =>
     transactions
-      .filter(t => t.type === type)
+      .filter((t) => t.type === type)
       .reduce((acc, curr) => {
         acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
         return acc;
       }, {});
 
-  const expenseData = Object.entries(buildCategoryMap('EXPENSE')).map(([name, value]) => ({ name, value }));
-  const incomeData  = Object.entries(buildCategoryMap('INCOME')).map(([name, value]) => ({ name, value }));
+  const expenseData = Object.entries(buildCategoryMap("EXPENSE")).map(
+    ([name, value]) => ({ name, value }),
+  );
+  const incomeData = Object.entries(buildCategoryMap("INCOME")).map(
+    ([name, value]) => ({ name, value }),
+  );
 
   return (
     <div className="min-h-screen py-8 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto">
-
       {/* Header */}
       <header className="mb-6 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight mb-1">
             woww my money <span className="text-blue-500">.</span>
           </h1>
-          <p className="text-slate-500">Pencatatan Keuangan Secepat Chatting.</p>
+          <p className="text-slate-500">
+            Pencatatan Keuangan Secepat Chatting.
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 mt-1">
           <button
             id="toggle-keywords-btn"
-            onClick={() => setShowKeywords(v => !v)}
+            onClick={() => setShowKeywords((v) => !v)}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg shadow-sm transition-colors"
             aria-label="Kelola kata kunci"
           >
             <Tag className="w-4 h-4 text-violet-500" />
             <span className="hidden sm:inline">Kata Kunci</span>
-            {showKeywords
-              ? <ChevronUp className="w-3.5 h-3.5" />
-              : <ChevronDown className="w-3.5 h-3.5" />
-            }
+            {showKeywords ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
           </button>
           <button
             id="open-guide-btn"
@@ -142,12 +164,12 @@ function App() {
         <TransactionForm onSubmit={handleAddTransaction} />
 
         {/* Keywords Manager (collapsible) */}
-        {showKeywords && (
-          <KeywordsManager apiBaseUrl={VITE_API_URL} />
-        )}
+        {showKeywords && <KeywordsManager apiBaseUrl={VITE_API_URL} />}
 
         {loading ? (
-          <div className="text-center py-10 text-slate-400 animate-pulse">Memuat data...</div>
+          <div className="text-center py-10 text-slate-400 animate-pulse">
+            Memuat data...
+          </div>
         ) : (
           <>
             {/* Dashboard Summary Cards */}
@@ -174,7 +196,10 @@ function App() {
 
       {/* Guide Modal */}
       {showGuide && (
-        <GuideModal apiBaseUrl={VITE_API_URL} onClose={() => setShowGuide(false)} />
+        <GuideModal
+          apiBaseUrl={VITE_API_URL}
+          onClose={() => setShowGuide(false)}
+        />
       )}
     </div>
   );
