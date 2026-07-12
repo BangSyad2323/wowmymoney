@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Jaga kerahasiaan data sensitif (Wajib!)
+.env
+.env.*
+!.env.example
+
+# Hasil generate Prisma lokal (opsional, biar gak konflik di cloud)
+/prisma/migrations

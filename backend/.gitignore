@@ -3,3 +3,10 @@ node_modules
 .env
 
 /generated/prisma
+
+# Jaga kerahasiaan data sensitif (Wajib!)
+.env.*
+!.env.example
+
+# Hasil generate Prisma lokal (opsional, biar gak konflik di cloud)
+/prisma/migrations

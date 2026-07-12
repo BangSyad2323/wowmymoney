@@ -14,6 +14,8 @@ const prisma = new PrismaClient({ adapter });
 
 const port = process.env.PORT || 3000;
 
+const RENDER_URL = "https://wowmymoney.onrender.com/api/ping";
+
 app.use(cors());
 app.use(express.json());
 
@@ -159,33 +161,59 @@ app.delete('/api/transactions/:id', async (req, res) => {
   }
 });
 
+// Endpoint ping agar setInterval tidak eror 404
+app.get('/api/ping', (req, res) => {
+  res.status(200).json({ status: 'success', message: 'Server is awake!' });
+});
+
+setInterval(async () => {
+  try {
+    // Menggunakan fetch bawaan Node.js (v25 sudah mendukung native fetch)
+    const response = await fetch(RENDER_URL);
+    const data = await response.json();
+    console.log(`[Self-Ping] Server auto-trigger success:`, data.message);
+  } catch (error) {
+    console.error("[Self-Ping] Gagal memicu server:", error.message);
+  }
+}, 12 * 60 * 1000);
+
+// ─── STARTUP ──────────────────────────────────────────────────────────────────
+
 // ─── STARTUP ──────────────────────────────────────────────────────────────────
 
 async function seedDefaults() {
-  const dummyId = '11111111-1111-1111-1111-111111111111';
+  try {
+    const dummyId = '11111111-1111-1111-1111-111111111111';
 
-  // Ensure dummy user exists
-  const user = await prisma.users.findUnique({ where: { id: dummyId } });
-  if (!user) {
-    await prisma.users.create({
-      data: { id: dummyId, email: 'user@fintext.local', password: 'hashedpassword123' }
-    });
-    console.log('✓ Dummy user created.');
-  }
+    // Ensure dummy user exists
+    const user = await prisma.users.findUnique({ where: { id: dummyId } });
+    if (!user) {
+      await prisma.users.create({
+        data: { id: dummyId, email: 'user@fintext.local', password: 'hashedpassword123' }
+      });
+      console.log('✓ Dummy user created.');
+    }
 
-  // Seed default keywords only if table is empty
-  const count = await prisma.transaction_keywords.count();
-  if (count === 0) {
-    const seeds = [
-      ...DEFAULT_INCOME_KEYWORDS.map(kw => ({ keyword: kw, type: 'INCOME' })),
-      ...DEFAULT_EXPENSE_KEYWORDS.map(kw => ({ keyword: kw, type: 'EXPENSE' }))
-    ];
-    await prisma.transaction_keywords.createMany({ data: seeds, skipDuplicates: true });
-    console.log(`✓ Seeded ${seeds.length} default keywords.`);
+    // Seed default keywords only if table is empty
+    const count = await prisma.transaction_keywords.count();
+    if (count === 0) {
+      const seeds = [
+        ...DEFAULT_INCOME_KEYWORDS.map(kw => ({ keyword: kw, type: 'INCOME' })),
+        ...DEFAULT_EXPENSE_KEYWORDS.map(kw => ({ keyword: kw, type: 'EXPENSE' }))
+      ];
+      await prisma.transaction_keywords.createMany({ data: seeds, skipDuplicates: true });
+      console.log(`✓ Seeded ${seeds.length} default keywords.`);
+    }
+  } catch (error) {
+    console.error('⚠ Gagal menjalankan seedDefaults:', error.message);
   }
 }
 
-app.listen(port, async () => {
-  console.log(`Server is running on port ${port}`);
-  await seedDefaults();
+// Jalankan server Express secepat mungkin dan dengerin host '0.0.0.0'
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server is running beautifully on port ${port}`);
+  
+  // Jalankan seeding di latar belakang (background), tidak perlu di-await
+  seedDefaults();
 });
+

@@ -10,7 +10,7 @@ import { HelpCircle, Tag, ChevronDown, ChevronUp } from 'lucide-react';
 
 // Hardcoded userId for MVP as per plan
 const USER_ID = '11111111-1111-1111-1111-111111111111';
-const API_URL = 'http://192.168.203.12:3000/api/transactions';
+const API_BASE_URL = import.meta.env.VITE_API_URL;
 const LIMIT = 10;
 
 function App() {
