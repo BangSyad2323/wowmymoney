@@ -10,7 +10,7 @@ import { HelpCircle, Tag, ChevronDown, ChevronUp } from 'lucide-react';
 
 // Hardcoded userId for MVP as per plan
 const USER_ID = '11111111-1111-1111-1111-111111111111';
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+const VITE_API_URL = import.meta.env.VITE_API_URL;
 const LIMIT = 10;
 
 function App() {
@@ -25,7 +25,7 @@ function App() {
   // Fetch initial or refreshed page 1 (replaces all transactions)
   const fetchTransactions = async () => {
     try {
-      const response = await axios.get(`${API_URL}?userId=${USER_ID}&limit=${LIMIT}&page=1`);
+      const response = await axios.get(`${VITE_API_URL}?userId=${USER_ID}&limit=${LIMIT}&page=1`);
       setTransactions(response.data.data);
       setHasMore(response.data.meta.hasMore);
       setPage(1);
@@ -41,7 +41,7 @@ function App() {
     setLoadingMore(true);
     try {
       const nextPage = page + 1;
-      const response = await axios.get(`${API_URL}?userId=${USER_ID}&limit=${LIMIT}&page=${nextPage}`);
+      const response = await axios.get(`${VITE_API_URL}?userId=${USER_ID}&limit=${LIMIT}&page=${nextPage}`);
       setTransactions(prev => [...prev, ...response.data.data]);
       setHasMore(response.data.meta.hasMore);
       setPage(nextPage);
@@ -58,7 +58,7 @@ function App() {
 
   const handleAddTransaction = async (text) => {
     try {
-      await axios.post(API_URL, { text, userId: USER_ID });
+      await axios.post(VITE_API_URL, { text, userId: USER_ID });
       fetchTransactions();
     } catch (error) {
       console.error('Failed to add transaction:', error);
@@ -68,7 +68,7 @@ function App() {
 
   const handleDeleteTransaction = async (id) => {
     try {
-      await axios.delete(`${API_URL}/${id}`);
+      await axios.delete(`${VITE_API_URL}/${id}`);
       fetchTransactions();
     } catch (error) {
       console.error('Failed to delete transaction:', error);
@@ -143,7 +143,7 @@ function App() {
 
         {/* Keywords Manager (collapsible) */}
         {showKeywords && (
-          <KeywordsManager apiBaseUrl={API_URL} />
+          <KeywordsManager apiBaseUrl={VITE_API_URL} />
         )}
 
         {loading ? (
@@ -174,7 +174,7 @@ function App() {
 
       {/* Guide Modal */}
       {showGuide && (
-        <GuideModal apiBaseUrl={API_URL} onClose={() => setShowGuide(false)} />
+        <GuideModal apiBaseUrl={VITE_API_URL} onClose={() => setShowGuide(false)} />
       )}
     </div>
   );
