@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Trash2, ChevronDown, Loader2, AlertCircle, ArrowUpCircle, ArrowDownCircle, Info, Calendar } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Trash2, ChevronDown, Loader2, AlertCircle, ArrowUpCircle, ArrowDownCircle, Info, Calendar, Clock } from 'lucide-react';
 
 const formatCurrency = (amount) => {
   return new Intl.NumberFormat('id-ID', {
@@ -9,34 +9,76 @@ const formatCurrency = (amount) => {
   }).format(amount);
 };
 
+const formatTime = (dateString) => {
+  return new Intl.DateTimeFormat('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(dateString));
+};
+
 export default function TransactionHistory({ transactions, onDelete, hasMore, onLoadMore, loadingMore }) {
-  const [selectedTab, setSelectedTab] = useState('current'); // 'past', 'current', 'future'
+  const [selectedTabId, setSelectedTabId] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   
-  // Categorize and filter transactions based on month
-  const filteredAndGrouped = useMemo(() => {
-    if (!transactions) return { groups: [], summary: { income: 0, expense: 0, total: 0 } };
-
+  // 1. Generate Dynamic Month Tabs
+  const tabs = useMemo(() => {
+    const generatedTabs = [];
     const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
+    
+    if (!transactions || transactions.length === 0) {
+      const monthYear = new Intl.DateTimeFormat('id-ID', { month: 'short', year: 'numeric' }).format(now);
+      return [{ id: `${now.getFullYear()}-${now.getMonth()}`, label: monthYear, year: now.getFullYear(), month: now.getMonth() }];
+    }
 
-    // 1. Filter by selected tab
+    // Determine oldest date from loaded transactions (assuming ordered DESC)
+    const oldestDate = new Date(transactions[transactions.length - 1].created_at);
+    let currentYear = oldestDate.getFullYear();
+    let currentMonth = oldestDate.getMonth();
+
+    const endYear = now.getFullYear();
+    const endMonth = now.getMonth();
+
+    while (currentYear < endYear || (currentYear === endYear && currentMonth <= endMonth)) {
+      const d = new Date(currentYear, currentMonth, 1);
+      const label = new Intl.DateTimeFormat('id-ID', { month: 'short', year: 'numeric' }).format(d);
+      generatedTabs.push({
+        id: `${currentYear}-${currentMonth}`,
+        label,
+        year: currentYear,
+        month: currentMonth
+      });
+      
+      currentMonth++;
+      if (currentMonth > 11) {
+        currentMonth = 0;
+        currentYear++;
+      }
+    }
+    
+    return generatedTabs.reverse(); // Newest (current month) first
+  }, [transactions]);
+
+  // Select the most recent tab by default if nothing is selected
+  useEffect(() => {
+    if (tabs.length > 0 && !selectedTabId) {
+      setSelectedTabId(tabs[0].id);
+    }
+  }, [tabs, selectedTabId]);
+
+  // 2. Categorize and filter transactions based on selected month
+  const filteredAndGrouped = useMemo(() => {
+    if (!transactions || !selectedTabId) return { groups: [], summary: { income: 0, expense: 0, total: 0 } };
+
+    const selectedTab = tabs.find(t => t.id === selectedTabId);
+    if (!selectedTab) return { groups: [], summary: { income: 0, expense: 0, total: 0 } };
+
+    // Filter by selected tab (Month and Year)
     const filtered = transactions.filter(tx => {
       const txDate = new Date(tx.created_at);
-      const txMonth = txDate.getMonth();
-      const txYear = txDate.getFullYear();
-
-      if (selectedTab === 'current') {
-        return txMonth === currentMonth && txYear === currentYear;
-      } else if (selectedTab === 'past') {
-        return txYear < currentYear || (txYear === currentYear && txMonth < currentMonth);
-      } else {
-        return txYear > currentYear || (txYear === currentYear && txMonth > currentMonth);
-      }
+      return txDate.getMonth() === selectedTab.month && txDate.getFullYear() === selectedTab.year;
     });
 
-    // 2. Calculate summary for the selected period
+    // Calculate summary for the selected period
     const summary = filtered.reduce((acc, curr) => {
       if (curr.type === 'INCOME') {
         acc.income += curr.amount;
@@ -48,14 +90,12 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
       return acc;
     }, { income: 0, expense: 0, total: 0 });
 
-    // 3. Group by Date
+    // Group by Date
     const groupedObj = filtered.reduce((acc, curr) => {
       const date = new Date(curr.created_at);
-      // Format: YYYY-MM-DD for sorting
-      const dateKey = date.toISOString().split('T')[0];
+      const dateKey = date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
       
       if (!acc[dateKey]) {
-        // Build readable date string e.g. "Selasa, 12 Juli 2026"
         const readableDate = new Intl.DateTimeFormat('id-ID', {
           weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
         }).format(date);
@@ -76,11 +116,11 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
       return acc;
     }, {});
 
-    // 4. Convert to array and sort by date descending
+    // Convert to array and sort by date descending
     const groups = Object.values(groupedObj).sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 
     return { groups, summary };
-  }, [transactions, selectedTab]);
+  }, [transactions, selectedTabId, tabs]);
 
   const { groups, summary } = filteredAndGrouped;
 
@@ -95,18 +135,14 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
         <Calendar className="w-5 h-5 text-blue-500" /> Riwayat Transaksi
       </h3>
 
-      {/* Tabs */}
-      <div className="flex p-1 bg-slate-100/80 rounded-xl mb-6 overflow-x-auto no-scrollbar">
-        {[
-          { id: 'past', label: 'Bulan Lalu' },
-          { id: 'current', label: 'Bulan Ini' },
-          { id: 'future', label: 'Masa Depan' }
-        ].map(tab => (
+      {/* Dynamic Tabs */}
+      <div className="flex p-1 bg-slate-100/80 rounded-xl mb-6 overflow-x-auto no-scrollbar snap-x">
+        {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setSelectedTab(tab.id)}
-            className={`flex-1 min-w-[100px] text-sm font-semibold py-2 px-3 rounded-lg transition-all whitespace-nowrap ${
-              selectedTab === tab.id 
+            onClick={() => setSelectedTabId(tab.id)}
+            className={`flex-1 min-w-[100px] text-sm font-semibold py-2 px-4 rounded-lg transition-all whitespace-nowrap snap-center ${
+              selectedTabId === tab.id 
                 ? 'bg-white text-blue-600 shadow-sm border border-slate-200/50' 
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
             }`}
@@ -129,7 +165,7 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
         <div className="text-right border-l border-slate-200 pl-2">
           <p className="text-xs text-slate-500 mb-1 font-medium">Total Bersih</p>
           <p className={`text-sm sm:text-base font-bold ${summary.total >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-            {summary.total >= 0 ? '+' : ''}{formatCurrency(summary.total)}
+            {summary.total > 0 ? '+' : ''}{formatCurrency(summary.total)}
           </p>
         </div>
       </div>
@@ -137,9 +173,9 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
       {/* Transactions List */}
       <div className="flex-1 overflow-y-auto pr-1 -mr-1 space-y-6">
         {groups.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-slate-400 text-center">
+          <div className="flex flex-col items-center justify-center py-12 text-slate-400 text-center bg-slate-50/50 rounded-xl border border-slate-100/50">
             <Info className="w-10 h-10 mb-3 text-slate-300" />
-            <p className="font-medium">Belum ada transaksi di periode ini.</p>
+            <p className="font-medium text-slate-500">Belum ada transaksi di bulan ini.</p>
           </div>
         ) : (
           groups.map(group => (
@@ -158,19 +194,24 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
                 {group.transactions.map(tx => (
                   <div key={tx.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
                     
-                    <div className="flex items-start sm:items-center gap-3 overflow-hidden">
+                    <div className="flex items-start sm:items-center gap-3 overflow-hidden flex-1">
                       <div className={`p-2 rounded-lg shrink-0 ${tx.type === 'INCOME' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
                         {tx.type === 'INCOME' ? <ArrowUpCircle className="w-5 h-5" /> : <ArrowDownCircle className="w-5 h-5" />}
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold text-slate-800 truncate">{tx.description}</p>
-                        <p className="text-xs font-medium text-slate-500 mt-0.5 inline-block px-2 py-0.5 bg-slate-100 rounded-md">
-                          {tx.category}
-                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs font-medium text-slate-500 inline-block px-2 py-0.5 bg-slate-100 rounded-md">
+                            {tx.category}
+                          </span>
+                          <span className="text-xs font-medium text-slate-400 flex items-center gap-1">
+                            <Clock className="w-3 h-3" /> {formatTime(tx.created_at)}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between sm:justify-end gap-4 mt-2 sm:mt-0 pl-11 sm:pl-0">
+                    <div className="flex items-center justify-between sm:justify-end gap-4 mt-2 sm:mt-0 pl-11 sm:pl-0 shrink-0">
                       <span className={`font-bold whitespace-nowrap text-sm sm:text-base ${tx.type === 'INCOME' ? 'text-emerald-600' : 'text-rose-600'}`}>
                         {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.amount)}
                       </span>
@@ -192,7 +233,7 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
       </div>
 
       {/* Load More Button */}
-      {hasMore && selectedTab === 'current' && (
+      {hasMore && (
         <div className="pt-5 pb-2 flex justify-center mt-auto">
           <button
             onClick={onLoadMore}
@@ -202,7 +243,7 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
             {loadingMore ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> Memuat...</>
             ) : (
-              <><ChevronDown className="w-4 h-4" /> Muat Lebih Banyak</>
+              <><ChevronDown className="w-4 h-4" /> Muat Lebih Banyak ({tabs[tabs.length-1]?.label})</>
             )}
           </button>
         </div>
@@ -210,7 +251,7 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3 mb-4 text-rose-600">
               <div className="p-3 bg-rose-100 rounded-full">
@@ -224,13 +265,13 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
             <div className="flex gap-3 justify-end">
               <button 
                 onClick={() => setDeleteConfirmId(null)}
-                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors focus:outline-none"
               >
                 Batal
               </button>
               <button 
                 onClick={() => confirmDelete(deleteConfirmId)}
-                className="px-4 py-2 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 shadow-sm shadow-rose-600/20 rounded-lg transition-colors"
+                className="px-4 py-2 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 shadow-sm shadow-rose-600/20 rounded-lg transition-colors focus:outline-none"
               >
                 Ya, Hapus
               </button>
