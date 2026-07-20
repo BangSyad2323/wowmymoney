@@ -1,8 +1,9 @@
-import { Home, ReceiptText, PieChart, Settings } from 'lucide-react';
+import { Home, ReceiptText, PieChart, Settings, Target } from 'lucide-react';
 
 export default function BottomNav({ activeTab, onChange }) {
   const tabs = [
     { id: 'home', label: 'Beranda', icon: Home },
+    { id: 'savings', label: 'Tabungan', icon: Target },
     { id: 'transactions', label: 'Transaksi', icon: ReceiptText },
     { id: 'analytics', label: 'Analistik', icon: PieChart },
     { id: 'settings', label: 'Pengaturan', icon: Settings },

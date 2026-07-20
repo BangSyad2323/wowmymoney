@@ -9,6 +9,7 @@ import KeywordsManager from "./components/KeywordsManager";
 import BottomNav from "./components/BottomNav";
 import SettingsView from "./components/SettingsView";
 import Login from "./components/Login";
+import SavingsView from "./components/SavingsView";
 
 const VITE_API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 const LIMIT = 10;
@@ -189,6 +190,13 @@ function App() {
               onLoadMore={handleLoadMore}
               loadingMore={loadingMore}
             />
+          </div>
+        );
+
+      case "savings":
+        return (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <SavingsView user={user} apiBaseUrl={API_BASE_URL + '/api'} />
           </div>
         );
 

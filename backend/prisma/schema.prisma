@@ -43,3 +43,22 @@ model transaction_keywords {
   keyword   String @unique
   type      String // 'INCOME' or 'EXPENSE'
 }
+
+model SavingsGoal {
+  id            String       @id @default(uuid())
+  userId        String       // Menyimpan userId
+  title         String       // Contoh: "Beli Laptop", "Dana Darurat"
+  targetAmount  Float        // Target nominal yang ingin dicapai
+  currentAmount Float        @default(0) // Nominal yang sudah terkumpul
+  icon          String?      // Nama ikon/emoji
+  createdAt     DateTime     @default(now())
+  logs          SavingsLog[]
+}
+
+model SavingsLog {
+  id            String      @id @default(uuid())
+  savingsGoalId String
+  amount        Float       // Nominal setoran kali ini
+  createdAt     DateTime    @default(now())
+  savingsGoal   SavingsGoal @relation(fields: [savingsGoalId], references: [id], onDelete: Cascade)
+}

@@ -161,6 +161,97 @@ app.delete('/api/transactions/:id', async (req, res) => {
   }
 });
 
+// ─── SAVINGS API ─────────────────────────────────────────────────────────
+
+// GET Savings Goals with Logs
+app.get('/api/savings', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: 'User ID is required' });
+
+    const savings = await prisma.savingsGoal.findMany({
+      where: { userId },
+      include: {
+        logs: {
+          orderBy: { createdAt: 'desc' }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.status(200).json({ data: savings });
+  } catch (error) {
+    console.error('Error fetching savings:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST new Saving Goal
+app.post('/api/savings', async (req, res) => {
+  try {
+    const { userId, title, targetAmount, icon } = req.body;
+    if (!userId || !title || !targetAmount) {
+      return res.status(400).json({ error: 'userId, title, and targetAmount are required' });
+    }
+
+    const goal = await prisma.savingsGoal.create({
+      data: {
+        userId,
+        title,
+        targetAmount: parseFloat(targetAmount),
+        icon
+      }
+    });
+
+    res.status(201).json({ message: 'Savings goal created', data: goal });
+  } catch (error) {
+    console.error('Error creating savings goal:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST Deposit to Saving Goal
+app.post('/api/savings/:id/deposit', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Valid amount is required' });
+    }
+
+    // Use Prisma transaction to ensure atomicity
+    const result = await prisma.$transaction(async (tx) => {
+      const goal = await tx.savingsGoal.findUnique({ where: { id } });
+      if (!goal) throw new Error('Goal not found');
+
+      const newLog = await tx.savingsLog.create({
+        data: {
+          savingsGoalId: id,
+          amount: parseFloat(amount)
+        }
+      });
+
+      const updatedGoal = await tx.savingsGoal.update({
+        where: { id },
+        data: {
+          currentAmount: goal.currentAmount + parseFloat(amount)
+        }
+      });
+
+      return { updatedGoal, newLog };
+    });
+
+    res.status(200).json({ message: 'Deposit successful', data: result });
+  } catch (error) {
+    if (error.message === 'Goal not found') {
+      return res.status(404).json({ error: 'Savings goal not found' });
+    }
+    console.error('Error processing deposit:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Endpoint ping agar setInterval tidak eror 404
 app.get('/api/ping', (req, res) => {
   res.status(200).json({ status: 'success', message: 'Server is awake!' });
