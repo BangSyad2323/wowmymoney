@@ -8,9 +8,8 @@ import GuideModal from "./components/GuideModal";
 import KeywordsManager from "./components/KeywordsManager";
 import BottomNav from "./components/BottomNav";
 import SettingsView from "./components/SettingsView";
+import Login from "./components/Login";
 
-// Hardcoded userId for MVP as per plan
-const USER_ID = "11111111-1111-1111-1111-111111111111";
 const VITE_API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 const LIMIT = 10;
 
@@ -23,6 +22,12 @@ const API_BASE_URL = normalizeApiBase(VITE_API_URL);
 const TRANSACTIONS_URL = `${API_BASE_URL}/api/transactions`;
 
 function App() {
+  // Auth State
+  const [user, setUser] = useState(() => {
+    const saved = localStorage.getItem('fintext_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
   // Navigation State
   const [activeTab, setActiveTab] = useState("home");
 
@@ -37,11 +42,24 @@ function App() {
   const [showGuide, setShowGuide] = useState(false);
   const [showKeywords, setShowKeywords] = useState(false);
 
+  const handleLogin = (userData) => {
+    localStorage.setItem('fintext_user', JSON.stringify(userData));
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('fintext_user');
+    setUser(null);
+    setTransactions([]);
+    setActiveTab("home");
+  };
+
   // Memoized fetch function
   const fetchTransactions = useCallback(async () => {
+    if (!user) return;
     try {
       const response = await axios.get(TRANSACTIONS_URL, {
-        params: { userId: USER_ID, limit: LIMIT, page: 1, _t: Date.now() },
+        params: { userId: user.id, limit: LIMIT, page: 1, _t: Date.now() },
         headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
       });
       setTransactions(response.data.data);
@@ -52,15 +70,16 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   // Memoized load more
   const handleLoadMore = useCallback(async () => {
+    if (!user) return;
     setLoadingMore(true);
     try {
       const nextPage = page + 1;
       const response = await axios.get(TRANSACTIONS_URL, {
-        params: { userId: USER_ID, limit: LIMIT, page: nextPage, _t: Date.now() },
+        params: { userId: user.id, limit: LIMIT, page: nextPage, _t: Date.now() },
         headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
       });
       setTransactions((prev) => [...prev, ...response.data.data]);
@@ -71,22 +90,25 @@ function App() {
     } finally {
       setLoadingMore(false);
     }
-  }, [page]);
+  }, [page, user]);
 
   useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+    if (user) {
+      fetchTransactions();
+    }
+  }, [fetchTransactions, user]);
 
   // Memoized handlers
   const handleAddTransaction = useCallback(async (text) => {
+    if (!user) return;
     try {
-      await axios.post(TRANSACTIONS_URL, { text, userId: USER_ID });
+      await axios.post(TRANSACTIONS_URL, { text, userId: user.id });
       await fetchTransactions();
     } catch (error) {
       console.error("Failed to add transaction:", error);
       alert("Gagal menyimpan transaksi. Periksa kembali format teks Anda.");
     }
-  }, [fetchTransactions]);
+  }, [fetchTransactions, user]);
 
   const handleDeleteTransaction = useCallback(async (id) => {
     try {
@@ -98,7 +120,7 @@ function App() {
     }
   }, [fetchTransactions]);
 
-  // Memoized Metrics Calculations (Heavy tasks deferred from re-rendering)
+  // Memoized Metrics Calculations
   const metrics = useMemo(() => {
     let currentBalance = 0;
     let totalIncome = 0;
@@ -132,6 +154,11 @@ function App() {
       incomeData: Object.entries(buildCategoryMap("INCOME")).map(([name, value]) => ({ name, value }))
     };
   }, [transactions]);
+
+  // If not authenticated, force Login View
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   // Renders the main content based on active tab
   const renderContent = () => {
@@ -176,6 +203,8 @@ function App() {
         return (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
             <SettingsView 
+              user={user}
+              onLogout={handleLogout}
               onToggleKeywords={() => setShowKeywords(!showKeywords)} 
               onOpenGuide={() => setShowGuide(true)} 
             />

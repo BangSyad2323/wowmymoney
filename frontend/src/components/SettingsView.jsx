@@ -1,18 +1,28 @@
-import { Tag, HelpCircle, User, ShieldCheck } from 'lucide-react';
+import { Tag, HelpCircle, User, ShieldCheck, LogOut } from 'lucide-react';
 
-export default function SettingsView({ onToggleKeywords, onOpenGuide }) {
+export default function SettingsView({ user, onLogout, onToggleKeywords, onOpenGuide }) {
   return (
     <div className="space-y-6">
-      <div className="glass-card flex items-center gap-4 bg-white/60">
-        <div className="w-14 h-14 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full flex items-center justify-center shrink-0 border border-blue-200/50">
-          <User className="w-7 h-7 text-blue-600" />
+      <div className="glass-card flex items-center justify-between gap-4 bg-white/60">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-full flex items-center justify-center shrink-0 border border-blue-200/50">
+            <User className="w-7 h-7 text-blue-600" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-800 capitalize">{user?.username || 'User Guest'}</h2>
+            <p className="text-sm font-medium text-slate-500 flex items-center gap-1">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" /> Akun Terverifikasi
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-lg font-bold text-slate-800">User Guest</h2>
-          <p className="text-sm font-medium text-slate-500 flex items-center gap-1">
-            <ShieldCheck className="w-4 h-4 text-emerald-500" /> Mode MVP (Lokal)
-          </p>
-        </div>
+        <button 
+          onClick={onLogout}
+          className="p-2.5 text-rose-500 bg-rose-50 hover:bg-rose-100 hover:text-rose-600 rounded-xl transition-colors shadow-sm"
+          aria-label="Logout"
+          title="Keluar / Logout"
+        >
+          <LogOut className="w-5 h-5" />
+        </button>
       </div>
 
       <div className="glass-card p-0 overflow-hidden">

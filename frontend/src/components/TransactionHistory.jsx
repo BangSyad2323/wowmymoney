@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Trash2, ChevronDown, Loader2, AlertCircle, ArrowUpCircle, ArrowDownCircle, Info, Calendar, Clock } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 const formatCurrency = (amount) => {
   return new Intl.NumberFormat('id-ID', {
@@ -250,8 +251,8 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
       )}
 
       {/* Delete Confirmation Modal */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+      {deleteConfirmId && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
             <div className="flex items-center gap-3 mb-4 text-rose-600">
               <div className="p-3 bg-rose-100 rounded-full">
@@ -277,7 +278,8 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
