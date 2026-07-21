@@ -44,6 +44,30 @@ model transaction_keywords {
   type      String // 'INCOME' or 'EXPENSE'
 }
 
+enum DebtType {
+  RECEIVABLE
+  PAYABLE
+}
+
+enum DebtStatus {
+  UNPAID
+  PAID
+}
+
+model Debt {
+  id          String     @id @default(uuid())
+  userId      String
+  personName  String
+  amount      Float      // Nominal awal
+  paidAmount  Float      @default(0) // Sudah dibayar (via cicilan)
+  type        DebtType
+  status      DebtStatus @default(UNPAID)
+  dueDate     DateTime?
+  note        String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
 model SavingsGoal {
   id            String       @id @default(uuid())
   userId        String       // Menyimpan userId
@@ -55,10 +79,17 @@ model SavingsGoal {
   logs          SavingsLog[]
 }
 
+enum SavingsType {
+  DEPOSIT
+  WITHDRAW
+}
+
 model SavingsLog {
   id            String      @id @default(uuid())
   savingsGoalId String
   amount        Float       // Nominal setoran kali ini
+  type          SavingsType @default(DEPOSIT)
+  reason        String?     // Alasan penarikan
   createdAt     DateTime    @default(now())
   savingsGoal   SavingsGoal @relation(fields: [savingsGoalId], references: [id], onDelete: Cascade)
 }

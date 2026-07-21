@@ -10,6 +10,7 @@ import BottomNav from "./components/BottomNav";
 import SettingsView from "./components/SettingsView";
 import Login from "./components/Login";
 import SavingsView from "./components/SavingsView";
+import DebtView from "./components/DebtView";
 
 const VITE_API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 const LIMIT = 10;
@@ -34,6 +35,7 @@ function App() {
 
   // Data States
   const [transactions, setTransactions] = useState([]);
+  const [metrics, setMetrics] = useState({ currentBalance: 0, totalIncome: 0, totalExpense: 0 });
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -59,13 +61,20 @@ function App() {
   const fetchTransactions = useCallback(async () => {
     if (!user) return;
     try {
-      const response = await axios.get(TRANSACTIONS_URL, {
-        params: { userId: user.id, limit: LIMIT, page: 1, _t: Date.now() },
-        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-      });
-      setTransactions(response.data.data);
-      setHasMore(response.data.meta.hasMore);
+      const [txRes, metricsRes] = await Promise.all([
+        axios.get(TRANSACTIONS_URL, {
+          params: { userId: user.id, limit: LIMIT, page: 1, _t: Date.now() },
+          headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+        }),
+        axios.get(`${API_BASE_URL}/api/metrics`, {
+          params: { userId: user.id, _t: Date.now() },
+          headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+        })
+      ]);
+      setTransactions(txRes.data.data);
+      setHasMore(txRes.data.meta.hasMore);
       setPage(1);
+      setMetrics(metricsRes.data.data);
     } catch (error) {
       console.error("Failed to fetch transactions:", error);
     } finally {
@@ -121,24 +130,7 @@ function App() {
     }
   }, [fetchTransactions]);
 
-  // Memoized Metrics Calculations
-  const metrics = useMemo(() => {
-    let currentBalance = 0;
-    let totalIncome = 0;
-    let totalExpense = 0;
-
-    transactions.forEach(curr => {
-      if (curr.type === "INCOME") {
-        currentBalance += curr.amount;
-        totalIncome += curr.amount;
-      } else {
-        currentBalance -= curr.amount;
-        totalExpense += curr.amount;
-      }
-    });
-
-    return { currentBalance, totalIncome, totalExpense };
-  }, [transactions]);
+  // (Metrics calculation moved to backend for accuracy)
 
   // Memoized Chart Data
   const chartData = useMemo(() => {
@@ -196,7 +188,14 @@ function App() {
       case "savings":
         return (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <SavingsView user={user} apiBaseUrl={API_BASE_URL + '/api'} />
+            <SavingsView user={user} apiBaseUrl={API_BASE_URL + '/api'} onMetricsChanged={fetchTransactions} />
+          </div>
+        );
+
+      case "debts":
+        return (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <DebtView user={user} apiBaseUrl={API_BASE_URL + '/api'} onMetricsChanged={fetchTransactions} />
           </div>
         );
 

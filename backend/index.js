@@ -112,14 +112,19 @@ app.post('/api/transactions', async (req, res) => {
   }
 });
 
-// Get Transactions with pagination (GET)
+// Asset-rotation categories are EXCLUDED from the public transaction list and income/expense metrics
+const ASSET_ROTATION_CATEGORIES = ['Tabungan', 'Pencairan Tabungan', 'Piutang (Pinjaman Keluar)', 'Pelunasan Piutang', 'Utang Diterima', 'Pelunasan Utang'];
+
+// Get Transactions with pagination (GET) — excludes asset-rotation categories
 app.get('/api/transactions', async (req, res) => {
   try {
     const { userId, limit = '10', page = '1' } = req.query;
 
     const take = parseInt(limit, 10);
     const skip = (parseInt(page, 10) - 1) * take;
-    const filter = userId ? { user_id: userId } : {};
+    const filter = userId
+      ? { user_id: userId, category: { notIn: ASSET_ROTATION_CATEGORIES } }
+      : { category: { notIn: ASSET_ROTATION_CATEGORIES } };
 
     const [transactions, total] = await Promise.all([
       prisma.transactions.findMany({
@@ -160,6 +165,231 @@ app.delete('/api/transactions/:id', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// DELETE ALL transactions for a user (Reset)
+app.delete('/api/transactions', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const result = await prisma.transactions.deleteMany({ where: { user_id: userId } });
+    res.status(200).json({ message: `Deleted ${result.count} transactions` });
+  } catch (error) {
+    console.error('Error deleting all transactions:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+
+// GET /api/metrics — excludes asset-rotation categories for clean income/expense reporting
+
+app.get('/api/metrics', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: 'User ID is required' });
+
+    // Pure income/expense — excludes asset-rotation transactions
+    const incomeAgg = await prisma.transactions.aggregate({
+      where: { user_id: userId, type: 'INCOME', category: { notIn: ASSET_ROTATION_CATEGORIES } },
+      _sum: { amount: true }
+    });
+    const totalIncome = incomeAgg._sum.amount || 0;
+
+    const expenseAgg = await prisma.transactions.aggregate({
+      where: { user_id: userId, type: 'EXPENSE', category: { notIn: ASSET_ROTATION_CATEGORIES } },
+      _sum: { amount: true }
+    });
+    const totalExpense = expenseAgg._sum.amount || 0;
+
+    // Balance uses ALL transactions (including asset-rotation)
+    const allIncomeAgg = await prisma.transactions.aggregate({
+      where: { user_id: userId, type: 'INCOME' },
+      _sum: { amount: true }
+    });
+    const allExpenseAgg = await prisma.transactions.aggregate({
+      where: { user_id: userId, type: 'EXPENSE' },
+      _sum: { amount: true }
+    });
+    const currentBalance = (allIncomeAgg._sum.amount || 0) - (allExpenseAgg._sum.amount || 0);
+
+    res.status(200).json({ data: { totalIncome, totalExpense, currentBalance } });
+  } catch (error) {
+    console.error('Error fetching metrics:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── DEBT API ─────────────────────────────────────────────────────────────────
+
+// GET all debts for a user
+app.get('/api/debts', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: 'User ID is required' });
+
+    const debts = await prisma.debt.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.status(200).json({ data: debts });
+  } catch (error) {
+    console.error('Error fetching debts:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST create new debt
+app.post('/api/debts', async (req, res) => {
+  try {
+    const { userId, personName, amount, type, dueDate, note } = req.body;
+    if (!userId || !personName || !amount || !type) {
+      return res.status(400).json({ error: 'userId, personName, amount, and type are required' });
+    }
+    if (!['RECEIVABLE', 'PAYABLE'].includes(type)) {
+      return res.status(400).json({ error: 'Invalid type' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const debt = await tx.debt.create({
+        data: {
+          userId,
+          personName,
+          amount: parseFloat(amount),
+          type,
+          dueDate: dueDate ? new Date(dueDate) : null,
+          note
+        }
+      });
+
+      // RECEIVABLE (memberi pinjaman) → kurangi saldo (EXPENSE)
+      // PAYABLE (menerima pinjaman)   → tambah saldo (INCOME)
+      await tx.transactions.create({
+        data: {
+          user_id: userId,
+          type: type === 'RECEIVABLE' ? 'EXPENSE' : 'INCOME',
+          amount: parseFloat(amount),
+          category: type === 'RECEIVABLE' ? 'Piutang (Pinjaman Keluar)' : 'Utang Diterima',
+          description: `${type === 'RECEIVABLE' ? 'Piutang ke' : 'Utang dari'} ${personName}${note ? ` - ${note}` : ''}`,
+          raw_text: `${type === 'RECEIVABLE' ? 'Piutang' : 'Utang'} ${personName}`
+        }
+      });
+
+      return debt;
+    });
+
+    res.status(201).json({ message: 'Debt recorded', data: result });
+  } catch (error) {
+    console.error('Error creating debt:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST pay/settle a debt (mark as PAID)
+// POST full settle a debt (mark as PAID, use remaining balance)
+app.post('/api/debts/:id/pay', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+    const result = await prisma.$transaction(async (tx) => {
+      const debt = await tx.debt.findUnique({ where: { id } });
+      if (!debt) throw new Error('Debt not found');
+      if (debt.status === 'PAID') throw new Error('Already paid');
+
+      const remaining = debt.amount - debt.paidAmount;
+
+      const updated = await tx.debt.update({
+        where: { id },
+        data: { status: 'PAID', paidAmount: debt.amount }
+      });
+
+      await tx.transactions.create({
+        data: {
+          user_id: userId,
+          type: debt.type === 'RECEIVABLE' ? 'INCOME' : 'EXPENSE',
+          amount: remaining,
+          category: debt.type === 'RECEIVABLE' ? 'Pelunasan Piutang' : 'Pelunasan Utang',
+          description: `Pelunasan ${debt.type === 'RECEIVABLE' ? 'piutang dari' : 'utang ke'} ${debt.personName}`,
+          raw_text: `Lunas ${debt.personName}`
+        }
+      });
+
+      return updated;
+    });
+
+    res.status(200).json({ message: 'Debt settled', data: result });
+  } catch (error) {
+    if (error.message === 'Already paid') return res.status(400).json({ error: 'Debt is already paid' });
+    if (error.message === 'Debt not found') return res.status(404).json({ error: 'Debt not found' });
+    console.error('Error settling debt:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST partial payment on a debt
+app.post('/api/debts/:id/partial-pay', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId, amount } = req.body;
+    if (!userId || !amount || amount <= 0) return res.status(400).json({ error: 'userId and valid amount are required' });
+
+    const result = await prisma.$transaction(async (tx) => {
+      const debt = await tx.debt.findUnique({ where: { id } });
+      if (!debt) throw new Error('Debt not found');
+      if (debt.status === 'PAID') throw new Error('Already paid');
+
+      const payAmount = parseFloat(amount);
+      const remaining = debt.amount - debt.paidAmount;
+      if (payAmount > remaining) throw new Error('Amount exceeds remaining balance');
+
+      const newPaidAmount = debt.paidAmount + payAmount;
+      const isNowPaid = newPaidAmount >= debt.amount;
+
+      const updated = await tx.debt.update({
+        where: { id },
+        data: {
+          paidAmount: newPaidAmount,
+          status: isNowPaid ? 'PAID' : 'UNPAID'
+        }
+      });
+
+      await tx.transactions.create({
+        data: {
+          user_id: userId,
+          type: debt.type === 'RECEIVABLE' ? 'INCOME' : 'EXPENSE',
+          amount: payAmount,
+          category: debt.type === 'RECEIVABLE' ? 'Pelunasan Piutang' : 'Pelunasan Utang',
+          description: `Cicilan ${debt.type === 'RECEIVABLE' ? 'piutang dari' : 'utang ke'} ${debt.personName}`,
+          raw_text: `Cicilan ${debt.personName}`
+        }
+      });
+
+      return updated;
+    });
+
+    res.status(200).json({ message: 'Partial payment recorded', data: result });
+  } catch (error) {
+    if (error.message === 'Already paid') return res.status(400).json({ error: 'Debt is already paid' });
+    if (error.message === 'Debt not found') return res.status(404).json({ error: 'Debt not found' });
+    if (error.message === 'Amount exceeds remaining balance') return res.status(400).json({ error: 'Amount exceeds remaining balance' });
+    console.error('Error processing partial payment:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE a debt record
+app.delete('/api/debts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.debt.delete({ where: { id } });
+    res.status(200).json({ message: 'Debt deleted' });
+  } catch (error) {
+    if (error.code === 'P2025') return res.status(404).json({ error: 'Debt not found' });
+    console.error('Error deleting debt:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 // ─── SAVINGS API ─────────────────────────────────────────────────────────
 
@@ -214,13 +444,12 @@ app.post('/api/savings', async (req, res) => {
 app.post('/api/savings/:id/deposit', async (req, res) => {
   try {
     const { id } = req.params;
-    const { amount } = req.body;
+    const { amount, userId } = req.body;
     
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ error: 'Valid amount is required' });
+    if (!amount || amount <= 0 || !userId) {
+      return res.status(400).json({ error: 'Valid amount and userId are required' });
     }
 
-    // Use Prisma transaction to ensure atomicity
     const result = await prisma.$transaction(async (tx) => {
       const goal = await tx.savingsGoal.findUnique({ where: { id } });
       if (!goal) throw new Error('Goal not found');
@@ -228,14 +457,24 @@ app.post('/api/savings/:id/deposit', async (req, res) => {
       const newLog = await tx.savingsLog.create({
         data: {
           savingsGoalId: id,
-          amount: parseFloat(amount)
+          amount: parseFloat(amount),
+          type: 'DEPOSIT'
         }
       });
 
       const updatedGoal = await tx.savingsGoal.update({
         where: { id },
+        data: { currentAmount: goal.currentAmount + parseFloat(amount) }
+      });
+
+      await tx.transactions.create({
         data: {
-          currentAmount: goal.currentAmount + parseFloat(amount)
+          user_id: userId,
+          type: 'EXPENSE',
+          amount: parseFloat(amount),
+          category: 'Tabungan',
+          description: `Setor Tabungan: ${goal.title}`,
+          raw_text: `Setor Tabungan: ${goal.title}`
         }
       });
 
@@ -248,6 +487,93 @@ app.post('/api/savings/:id/deposit', async (req, res) => {
       return res.status(404).json({ error: 'Savings goal not found' });
     }
     console.error('Error processing deposit:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST Withdraw from Saving Goal
+app.post('/api/savings/:id/withdraw', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, reason, userId } = req.body;
+    
+    if (!amount || amount <= 0 || !userId) {
+      return res.status(400).json({ error: 'Valid amount and userId are required' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const goal = await tx.savingsGoal.findUnique({ where: { id } });
+      if (!goal) throw new Error('Goal not found');
+      
+      const withdrawAmount = parseFloat(amount);
+      if (goal.currentAmount < withdrawAmount) {
+        throw new Error('Insufficient savings');
+      }
+
+      const newLog = await tx.savingsLog.create({
+        data: {
+          savingsGoalId: id,
+          amount: withdrawAmount,
+          type: 'WITHDRAW',
+          reason: reason || 'Pencairan Tabungan'
+        }
+      });
+
+      const updatedGoal = await tx.savingsGoal.update({
+        where: { id },
+        data: { currentAmount: goal.currentAmount - withdrawAmount }
+      });
+
+      await tx.transactions.create({
+        data: {
+          user_id: userId,
+          type: 'INCOME',
+          amount: withdrawAmount,
+          category: 'Pencairan Tabungan',
+          description: `Tarik Tabungan: ${goal.title}${reason ? ` (${reason})` : ''}`,
+          raw_text: `Tarik Tabungan: ${goal.title}`
+        }
+      });
+
+      return { updatedGoal, newLog };
+    });
+
+    res.status(200).json({ message: 'Withdraw successful', data: result });
+  } catch (error) {
+    if (error.message === 'Insufficient savings') {
+      return res.status(400).json({ error: 'Insufficient savings' });
+    }
+    if (error.message === 'Goal not found') {
+      return res.status(404).json({ error: 'Savings goal not found' });
+    }
+    console.error('Error processing withdrawal:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET all Savings Logs for a user
+app.get('/api/savings/logs', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: 'User ID is required' });
+
+    const userGoals = await prisma.savingsGoal.findMany({
+      where: { userId },
+      select: { id: true }
+    });
+    const goalIds = userGoals.map(g => g.id);
+
+    const logs = await prisma.savingsLog.findMany({
+      where: { savingsGoalId: { in: goalIds } },
+      include: {
+        savingsGoal: { select: { title: true, icon: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.status(200).json({ data: logs });
+  } catch (error) {
+    console.error('Error fetching savings logs:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
