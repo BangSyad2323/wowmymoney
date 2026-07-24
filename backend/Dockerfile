@@ -20,4 +20,4 @@ RUN npx prisma generate
 EXPOSE 8080
 
 # 8. Jalankan aplikasi
-CMD ["npm", "start"]
+CMD ["node", "index.js"]
