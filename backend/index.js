@@ -14,7 +14,7 @@ const prisma = new PrismaClient({ adapter });
 
 const port = process.env.PORT || 3000;
 
-const RENDER_URL = "https://wowmymoney.onrender.com/api/ping";
+// const RENDER_URL = "https://wowmymoney.onrender.com/api/ping";
 
 app.use(cors());
 app.use(express.json());
@@ -578,22 +578,22 @@ app.get('/api/savings/logs', async (req, res) => {
   }
 });
 
-// Endpoint ping agar setInterval tidak eror 404
-app.get('/api/ping', (req, res) => {
-  res.status(200).json({ status: 'success', message: 'Server is awake!' });
-});
+// // Endpoint ping agar setInterval tidak eror 404
+// app.get('/api/ping', (req, res) => {
+//   res.status(200).json({ status: 'success', message: 'Server is awake!' });
+// });
 
-setInterval(async () => {
-  try {
-    // Menggunakan fetch bawaan Node.js (v25 sudah mendukung native fetch)
-    const response = await fetch(RENDER_URL);
-    const data = await response.json();
-    console.log(`[Self-Ping] Server auto-trigger success:`, data.message);
-  } catch (error) {
-    console.error("[Self-Ping] Gagal memicu server:", error.message);
-  }
-}, 12 * 60 * 1000);
-
+// setInterval(async () => {
+//   try {
+//     // Menggunakan fetch bawaan Node.js (v25 sudah mendukung native fetch)
+//     const response = await fetch(RENDER_URL);
+//     const data = await response.json();
+//     console.log(`[Self-Ping] Server auto-trigger success:`, data.message);
+//   } catch (error) {
+//     console.error("[Self-Ping] Gagal memicu server:", error.message);
+//   }
+// }, 12 * 60 * 1000);
+// 
 // ─── STARTUP ──────────────────────────────────────────────────────────────────
 
 // ─── STARTUP ──────────────────────────────────────────────────────────────────
