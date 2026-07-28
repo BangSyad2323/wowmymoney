@@ -27,6 +27,7 @@ export default function DashboardCards({ balance, income, expense }) {
         </div>
         <div>
           <p className="text-sm font-medium text-slate-500">Total Pemasukan</p>
+          <p className="text-xs font-medium text-slate-400">(Semua Waktu)</p>
           <p className="text-xl font-bold text-emerald-700">{formatCurrency(income)}</p>
         </div>
       </div>
@@ -37,6 +38,7 @@ export default function DashboardCards({ balance, income, expense }) {
         </div>
         <div>
           <p className="text-sm font-medium text-slate-500">Total Pengeluaran</p>
+          <p className="text-xs font-medium text-slate-400">(Semua Waktu)</p>
           <p className="text-xl font-bold text-rose-700">{formatCurrency(expense)}</p>
         </div>
       </div>

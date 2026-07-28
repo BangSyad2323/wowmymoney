@@ -1,6 +1,14 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import { Trash2, ChevronDown, Loader2, AlertCircle, ArrowUpCircle, ArrowDownCircle, Info, Calendar, Clock } from 'lucide-react';
 import { createPortal } from 'react-dom';
+
+const VITE_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const normalizeApiBase = (value) => {
+  if (!value) return 'http://localhost:3000';
+  return value.replace(/\/api\/transactions\/?$/, '').replace(/\/api\/?$/, '');
+};
+const API_BASE_URL = normalizeApiBase(VITE_API_URL);
 
 const formatCurrency = (amount) => {
   return new Intl.NumberFormat('id-ID', {
@@ -17,9 +25,12 @@ const formatTime = (dateString) => {
   }).format(new Date(dateString));
 };
 
-export default function TransactionHistory({ transactions, onDelete, hasMore, onLoadMore, loadingMore }) {
+export default function TransactionHistory({ transactions, onDelete, hasMore, onLoadMore, loadingMore, userId, refreshKey }) {
   const [selectedTabId, setSelectedTabId] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  // Backend-accurate monthly summary
+  const [monthlySummary, setMonthlySummary] = useState({ income: 0, expense: 0 });
+  const [summaryLoading, setSummaryLoading] = useState(false);
   
   // 1. Generate Dynamic Month Tabs
   const tabs = useMemo(() => {
@@ -66,30 +77,44 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
     }
   }, [tabs, selectedTabId]);
 
-  // 2. Categorize and filter transactions based on selected month
+  // ── Fetch accurate monthly summary from backend whenever selected tab changes ──
+  const selectedTab = useMemo(() => tabs.find(t => t.id === selectedTabId), [tabs, selectedTabId]);
+
+  const fetchMonthlySummary = useCallback(async () => {
+    if (!selectedTab || !userId) return;
+    setSummaryLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/metrics/monthly`, {
+        params: { userId, year: selectedTab.year, month: selectedTab.month, _t: Date.now() }
+      });
+      setMonthlySummary({
+        income: res.data.data.totalIncome,
+        expense: res.data.data.totalExpense
+      });
+    } catch (err) {
+      console.error('Failed to fetch monthly summary:', err);
+    } finally {
+      setSummaryLoading(false);
+    }
+  // refreshKey included so parent can trigger a re-fetch after any mutation
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTab, userId, refreshKey]);
+
+  useEffect(() => {
+    fetchMonthlySummary();
+  }, [fetchMonthlySummary]);
+
+  // 2. Filter transactions for display in the selected month (client-side, for the loaded list)
   const filteredAndGrouped = useMemo(() => {
-    if (!transactions || !selectedTabId) return { groups: [], summary: { income: 0, expense: 0, total: 0 } };
+    if (!transactions || !selectedTabId) return { groups: [] };
 
-    const selectedTab = tabs.find(t => t.id === selectedTabId);
-    if (!selectedTab) return { groups: [], summary: { income: 0, expense: 0, total: 0 } };
+    if (!selectedTab) return { groups: [] };
 
-    // Filter by selected tab (Month and Year)
+    // Filter by selected tab (Month and Year) — only for display grouping
     const filtered = transactions.filter(tx => {
       const txDate = new Date(tx.created_at);
       return txDate.getMonth() === selectedTab.month && txDate.getFullYear() === selectedTab.year;
     });
-
-    // Calculate summary for the selected period
-    const summary = filtered.reduce((acc, curr) => {
-      if (curr.type === 'INCOME') {
-        acc.income += curr.amount;
-        acc.total += curr.amount;
-      } else {
-        acc.expense += curr.amount;
-        acc.total -= curr.amount;
-      }
-      return acc;
-    }, { income: 0, expense: 0, total: 0 });
 
     // Group by Date
     const groupedObj = filtered.reduce((acc, curr) => {
@@ -120,10 +145,12 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
     // Convert to array and sort by date descending
     const groups = Object.values(groupedObj).sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 
-    return { groups, summary };
-  }, [transactions, selectedTabId, tabs]);
+    return { groups };
+  }, [transactions, selectedTabId, selectedTab]);
 
-  const { groups, summary } = filteredAndGrouped;
+  const { groups } = filteredAndGrouped;
+  // Derived total from accurate backend data
+  const summaryTotal = monthlySummary.income - monthlySummary.expense;
 
   const confirmDelete = (id) => {
     onDelete(id);
@@ -154,19 +181,24 @@ export default function TransactionHistory({ transactions, onDelete, hasMore, on
       </div>
 
       {/* Period Summary */}
-      <div className="grid grid-cols-3 gap-2 mb-6 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+      <div className="grid grid-cols-3 gap-2 mb-6 bg-slate-50/50 p-4 rounded-xl border border-slate-100 relative">
+        {summaryLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-50/70 rounded-xl">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+          </div>
+        )}
         <div>
           <p className="text-xs text-slate-500 mb-1 font-medium">Pemasukan</p>
-          <p className="text-sm sm:text-base font-bold text-emerald-600">{formatCurrency(summary.income)}</p>
+          <p className="text-sm sm:text-base font-bold text-emerald-600">{formatCurrency(monthlySummary.income)}</p>
         </div>
         <div>
           <p className="text-xs text-slate-500 mb-1 font-medium">Pengeluaran</p>
-          <p className="text-sm sm:text-base font-bold text-rose-600">{formatCurrency(summary.expense)}</p>
+          <p className="text-sm sm:text-base font-bold text-rose-600">{formatCurrency(monthlySummary.expense)}</p>
         </div>
         <div className="text-right border-l border-slate-200 pl-2">
           <p className="text-xs text-slate-500 mb-1 font-medium">Total Bersih</p>
-          <p className={`text-sm sm:text-base font-bold ${summary.total >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-            {summary.total > 0 ? '+' : ''}{formatCurrency(summary.total)}
+          <p className={`text-sm sm:text-base font-bold ${summaryTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {summaryTotal > 0 ? '+' : ''}{formatCurrency(summaryTotal)}
           </p>
         </div>
       </div>

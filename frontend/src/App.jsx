@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import TransactionForm from "./components/TransactionForm";
 import DashboardCards from "./components/DashboardCards";
@@ -40,6 +40,8 @@ function App() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Bumped after every mutation so child components know to re-fetch derived data
+  const [mutationKey, setMutationKey] = useState(0);
   
   // UI States
   const [showGuide, setShowGuide] = useState(false);
@@ -114,6 +116,7 @@ function App() {
     try {
       await axios.post(TRANSACTIONS_URL, { text, userId: user.id });
       await fetchTransactions();
+      setMutationKey(k => k + 1);
     } catch (error) {
       console.error("Failed to add transaction:", error);
       alert("Gagal menyimpan transaksi. Periksa kembali format teks Anda.");
@@ -124,6 +127,7 @@ function App() {
     try {
       await axios.delete(`${TRANSACTIONS_URL}/${id}`);
       await fetchTransactions();
+      setMutationKey(k => k + 1);
     } catch (error) {
       console.error("Failed to delete transaction:", error);
       alert("Gagal menghapus transaksi.");
@@ -137,6 +141,7 @@ function App() {
         params: { userId: user.id }
       });
       await fetchTransactions();
+      setMutationKey(k => k + 1);
       alert("Semua data transaksi harian, utang-piutang, dan tabungan Anda berhasil dihapus!");
     } catch (error) {
       console.error("Failed to reset data:", error);
@@ -146,21 +151,8 @@ function App() {
 
   // (Metrics calculation moved to backend for accuracy)
 
-  // Memoized Chart Data
-  const chartData = useMemo(() => {
-    const buildCategoryMap = (type) =>
-      transactions
-        .filter((t) => t.type === type)
-        .reduce((acc, curr) => {
-          acc[curr.category] = (acc[curr.category] || 0) + curr.amount;
-          return acc;
-        }, {});
-
-    return {
-      expenseData: Object.entries(buildCategoryMap("EXPENSE")).map(([name, value]) => ({ name, value })),
-      incomeData: Object.entries(buildCategoryMap("INCOME")).map(([name, value]) => ({ name, value }))
-    };
-  }, [transactions]);
+  // Chart data is now fetched directly by DualChart component from /api/chart-data
+  // (uses DB-level groupBy so all categories appear regardless of pagination)
 
   // If not authenticated, force Login View
   if (!user) {
@@ -195,6 +187,8 @@ function App() {
               hasMore={hasMore}
               onLoadMore={handleLoadMore}
               loadingMore={loadingMore}
+              userId={user?.id}
+              refreshKey={mutationKey}
             />
           </div>
         );
@@ -216,7 +210,7 @@ function App() {
       case "analytics":
         return (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <DualChart expenseData={chartData.expenseData} incomeData={chartData.incomeData} />
+            <DualChart userId={user?.id} refreshKey={mutationKey} />
           </div>
         );
 

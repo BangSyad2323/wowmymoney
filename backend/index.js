@@ -185,7 +185,128 @@ app.delete('/api/transactions', async (req, res) => {
   }
 });
 
+// ─── CHART DATA API ───────────────────────────────────────────────────────────
+// GET /api/chart-data
+// Query: userId (required), year (optional), month (optional, 0-indexed)
+// If year+month provided → filter to that WIB month; otherwise → all-time.
+// Returns grouped category totals for INCOME and EXPENSE, excluding asset-rotation entries.
+app.get('/api/chart-data', async (req, res) => {
+  try {
+    const { userId, year, month } = req.query;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
 
+    // Build optional date filter (WIB-aware)
+    let dateFilter = undefined;
+    if (year !== undefined && month !== undefined) {
+      const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+      const y = parseInt(year, 10);
+      const m = parseInt(month, 10);
+      const startUTC = new Date(new Date(y, m, 1, 0, 0, 0, 0).getTime() - WIB_OFFSET_MS);
+      const endUTC   = new Date(new Date(y, m + 1, 1, 0, 0, 0, 0).getTime() - WIB_OFFSET_MS);
+      dateFilter = { gte: startUTC, lt: endUTC };
+    }
+
+    const baseWhere = {
+      user_id: userId,
+      category: { notIn: ASSET_ROTATION_CATEGORIES },
+      ...(dateFilter ? { created_at: dateFilter } : {})
+    };
+
+    // Use Prisma groupBy — runs a single SQL GROUP BY at DB level, no limit
+    const [expenseGroups, incomeGroups] = await Promise.all([
+      prisma.transactions.groupBy({
+        by: ['category'],
+        where: { ...baseWhere, type: 'EXPENSE' },
+        _sum: { amount: true },
+        orderBy: { _sum: { amount: 'desc' } }
+      }),
+      prisma.transactions.groupBy({
+        by: ['category'],
+        where: { ...baseWhere, type: 'INCOME' },
+        _sum: { amount: true },
+        orderBy: { _sum: { amount: 'desc' } }
+      })
+    ]);
+
+    // Shape into { name, value } for recharts
+    const toChartArray = (groups) =>
+      groups
+        .filter(g => (g._sum.amount || 0) > 0)
+        .map(g => ({ name: g.category, value: g._sum.amount || 0 }));
+
+    res.status(200).json({
+      data: {
+        expenseData: toChartArray(expenseGroups),
+        incomeData:  toChartArray(incomeGroups)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching chart data:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/metrics/monthly — per-month income/expense with WIB-aware date range
+// Query params: userId, year, month (0-indexed, e.g. month=6 for July)
+app.get('/api/metrics/monthly', async (req, res) => {
+  try {
+    const { userId, year, month } = req.query;
+    if (!userId || year === undefined || month === undefined) {
+      return res.status(400).json({ error: 'userId, year, and month are required' });
+    }
+
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10); // 0-indexed: 0=Jan ... 11=Dec
+
+    // WIB is UTC+7. To get WIB month boundaries as UTC timestamps:
+    // WIB start of month = 1st of month 00:00:00 WIB = 1st of month - 7h UTC
+    // WIB end of month   = 1st of next month 00:00:00 WIB = 1st of next month - 7h UTC
+    const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+    // Start: 00:00:00 WIB on the 1st of the month  => in UTC: subtract 7 hours
+    const startWIB = new Date(y, m, 1, 0, 0, 0, 0);       // local Date object (treated as local)
+    const startUTC = new Date(startWIB.getTime() - WIB_OFFSET_MS);
+
+    // End: 00:00:00 WIB on the 1st of the NEXT month => in UTC
+    const endWIB   = new Date(y, m + 1, 1, 0, 0, 0, 0);
+    const endUTC   = new Date(endWIB.getTime() - WIB_OFFSET_MS);
+
+    const dateFilter = { gte: startUTC, lt: endUTC };
+
+    const [incomeAgg, expenseAgg] = await Promise.all([
+      prisma.transactions.aggregate({
+        where: {
+          user_id: userId,
+          type: 'INCOME',
+          category: { notIn: ASSET_ROTATION_CATEGORIES },
+          created_at: dateFilter
+        },
+        _sum: { amount: true }
+      }),
+      prisma.transactions.aggregate({
+        where: {
+          user_id: userId,
+          type: 'EXPENSE',
+          category: { notIn: ASSET_ROTATION_CATEGORIES },
+          created_at: dateFilter
+        },
+        _sum: { amount: true }
+      })
+    ]);
+
+    res.status(200).json({
+      data: {
+        totalIncome:  incomeAgg._sum.amount  || 0,
+        totalExpense: expenseAgg._sum.amount || 0,
+        year: y,
+        month: m
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching monthly metrics:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // GET /api/metrics — excludes asset-rotation categories for clean income/expense reporting
 
