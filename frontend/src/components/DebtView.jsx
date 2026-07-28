@@ -26,6 +26,10 @@ export default function DebtView({ user, apiBaseUrl, onMetricsChanged }) {
   const [showDeleteModal, setShowDeleteModal] = useState(null); // debt object or null
   const [submitting, setSubmitting] = useState(false);
 
+  // Partial Payment State
+  const [paymentMode, setPaymentMode] = useState('FULL'); // FULL | PARTIAL
+  const [partialAmount, setPartialAmount] = useState('');
+
   // Form
   const [formPerson, setFormPerson] = useState('');
   const [formAmount, setFormAmount] = useState('');
@@ -50,12 +54,13 @@ export default function DebtView({ user, apiBaseUrl, onMetricsChanged }) {
   const { totalReceivable, totalPayable, unpaidReceivable, unpaidPayable } = useMemo(() => {
     let tR = 0, tP = 0, uR = 0, uP = 0;
     debts.forEach(d => {
+      const remaining = d.amount - (d.paidAmount || 0);
       if (d.type === 'RECEIVABLE') {
         tR += d.amount;
-        if (d.status === 'UNPAID') uR += d.amount;
+        if (d.status === 'UNPAID') uR += remaining;
       } else {
         tP += d.amount;
-        if (d.status === 'UNPAID') uP += d.amount;
+        if (d.status === 'UNPAID') uP += remaining;
       }
     });
     return { totalReceivable: tR, totalPayable: tP, unpaidReceivable: uR, unpaidPayable: uP };
@@ -94,16 +99,39 @@ export default function DebtView({ user, apiBaseUrl, onMetricsChanged }) {
     }
   };
 
+  const openPayModal = (debt) => {
+    setShowPayModal(debt);
+    setPaymentMode('FULL');
+    setPartialAmount('');
+  };
+
   const handlePay = async () => {
     if (!showPayModal) return;
     try {
       setSubmitting(true);
-      await axios.post(`${apiBaseUrl}/debts/${showPayModal.id}/pay`, { userId: user.id });
+      if (paymentMode === 'FULL') {
+        await axios.post(`${apiBaseUrl}/debts/${showPayModal.id}/pay`, { userId: user.id });
+      } else {
+        const amt = parseFloat(partialAmount);
+        if (!amt || amt <= 0) {
+          alert('Masukkan nominal cicilan yang valid.');
+          return;
+        }
+        const remaining = showPayModal.amount - (showPayModal.paidAmount || 0);
+        if (amt > remaining) {
+          alert('Nominal cicilan tidak boleh melebihi sisa utang/piutang.');
+          return;
+        }
+        await axios.post(`${apiBaseUrl}/debts/${showPayModal.id}/partial-pay`, {
+          userId: user.id,
+          amount: amt
+        });
+      }
       setShowPayModal(null);
       await fetchDebts();
       onMetricsChanged?.();
     } catch (e) {
-      alert(e.response?.data?.error || 'Gagal melunasi.');
+      alert(e.response?.data?.error || 'Gagal memproses pembayaran.');
     } finally {
       setSubmitting(false);
     }
@@ -116,6 +144,7 @@ export default function DebtView({ user, apiBaseUrl, onMetricsChanged }) {
       await axios.delete(`${apiBaseUrl}/debts/${showDeleteModal.id}`);
       setShowDeleteModal(null);
       await fetchDebts();
+      onMetricsChanged?.();
     } catch (e) {
       alert('Gagal menghapus.');
     } finally {
@@ -220,9 +249,16 @@ export default function DebtView({ user, apiBaseUrl, onMetricsChanged }) {
                         <span className="flex items-center gap-1 text-[10px] font-bold text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded-md uppercase"><AlertTriangle className="w-3 h-3" />Jatuh Tempo</span>
                       ) : null}
                     </div>
-                    <p className={`text-base font-extrabold mt-0.5 ${debt.type === 'RECEIVABLE' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {formatCurrency(debt.amount)}
-                    </p>
+                    <div className="flex flex-col">
+                      <p className={`text-base font-extrabold mt-0.5 ${debt.type === 'RECEIVABLE' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {formatCurrency(debt.amount - (debt.paidAmount || 0))}
+                      </p>
+                      {debt.paidAmount > 0 && debt.status !== 'PAID' && (
+                        <span className="text-[10px] text-slate-400 font-medium mt-0.5">
+                          Dicicil: {formatCurrency(debt.paidAmount)} / {formatCurrency(debt.amount)}
+                        </span>
+                      )}
+                    </div>
                     {debt.note && <p className="text-xs text-slate-500 mt-0.5 truncate">{debt.note}</p>}
                     {debt.dueDate && (
                       <p className={`flex items-center gap-1 text-xs mt-1 font-medium ${overdue ? 'text-orange-600' : 'text-slate-400'}`}>
@@ -236,10 +272,10 @@ export default function DebtView({ user, apiBaseUrl, onMetricsChanged }) {
                   <div className="flex flex-col gap-1.5 shrink-0">
                     {debt.status === 'UNPAID' && (
                       <button
-                        onClick={() => setShowPayModal(debt)}
+                        onClick={() => openPayModal(debt)}
                         className="flex items-center gap-1 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-2.5 py-1.5 rounded-lg transition-colors"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Lunas
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Bayar/Cicil
                       </button>
                     )}
                     <button
@@ -298,34 +334,71 @@ export default function DebtView({ user, apiBaseUrl, onMetricsChanged }) {
         document.body
       )}
 
-      {/* Pay Confirmation Modal */}
+      {/* Pay Confirmation & Cicilan Modal */}
       {showPayModal && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><CheckCircle2 className="w-5 h-5 text-blue-500" /> Konfirmasi Pelunasan</h3>
+              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><CheckCircle2 className="w-5 h-5 text-blue-500" /> Bayar Utang / Piutang</h3>
               <button onClick={() => setShowPayModal(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
             </div>
-            <div className="bg-slate-50 rounded-xl p-4 mb-5 space-y-1.5">
-              <div className="flex justify-between text-sm"><span className="text-slate-500">Jenis</span><span className="font-bold">{showPayModal.type === 'RECEIVABLE' ? '🟢 Piutang (Terima kembali)' : '🔴 Utang (Kamu bayar)'}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-slate-500">Nama</span><span className="font-bold">{showPayModal.personName}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-slate-500">Nominal</span><span className="font-bold">{formatCurrency(showPayModal.amount)}</span></div>
-              <p className="text-xs text-blue-600 bg-blue-50 rounded-lg p-2 mt-2 font-medium">
-                {showPayModal.type === 'RECEIVABLE'
-                  ? '✅ Saldo utama akan bertambah sebesar nominal ini.'
-                  : '✅ Saldo utama akan berkurang sebesar nominal ini.'}
-              </p>
+
+            {/* Selector tabs */}
+            <div className="flex bg-slate-100 p-1 rounded-xl mb-4">
+              <button
+                type="button"
+                onClick={() => setPaymentMode('FULL')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${paymentMode === 'FULL' ? 'bg-white text-blue-600 shadow-sm font-extrabold' : 'text-slate-500'}`}
+              >
+                Pelunasan Penuh
+              </button>
+              <button
+                type="button"
+                onClick={() => { setPaymentMode('PARTIAL'); setPartialAmount(''); }}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${paymentMode === 'PARTIAL' ? 'bg-white text-blue-600 shadow-sm font-extrabold' : 'text-slate-500'}`}
+              >
+                Cicilan
+              </button>
             </div>
-            <div className="flex gap-3">
-              <button onClick={() => setShowPayModal(null)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors">Batal</button>
-              <button onClick={handlePay} disabled={submitting} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center justify-center disabled:opacity-50 transition-colors">
-                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Tandai Lunas'}
+
+            <div className="bg-slate-50 rounded-xl p-4 mb-4 space-y-1.5 text-sm">
+              <div className="flex justify-between"><span className="text-slate-500">Orang</span><span className="font-bold">{showPayModal.personName}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Tipe</span><span className="font-bold">{showPayModal.type === 'RECEIVABLE' ? '🟢 Piutang (Uang Kamu di Orang)' : '🔴 Utang (Utang Kamu ke Orang)'}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Total Awal</span><span className="font-bold">{formatCurrency(showPayModal.amount)}</span></div>
+              <div className="flex justify-between text-slate-600"><span className="text-slate-500">Sudah Dicicil</span><span className="font-semibold">{formatCurrency(showPayModal.paidAmount || 0)}</span></div>
+              <div className="flex justify-between border-t border-slate-200/60 pt-1.5 font-bold"><span className="text-slate-800">Sisa Tagihan</span><span className="text-blue-600">{formatCurrency(showPayModal.amount - (showPayModal.paidAmount || 0))}</span></div>
+            </div>
+
+            {paymentMode === 'PARTIAL' && (
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Nominal Cicilan (Rp)</label>
+                <input
+                  type="number"
+                  value={partialAmount}
+                  onChange={(e) => setPartialAmount(e.target.value)}
+                  max={showPayModal.amount - (showPayModal.paidAmount || 0)}
+                  min="1"
+                  required
+                  placeholder="Cth: 50000"
+                  className="glass-input w-full font-bold text-slate-800 focus:border-blue-500"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Maksimal cicilan: {formatCurrency(showPayModal.amount - (showPayModal.paidAmount || 0))}
+                </span>
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => setShowPayModal(null)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors text-sm">Batal</button>
+              <button onClick={handlePay} disabled={submitting} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl flex items-center justify-center disabled:opacity-50 transition-colors text-sm">
+                {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : (paymentMode === 'FULL' ? 'Lunasi Sekarang' : 'Bayar Cicilan')}
               </button>
             </div>
           </div>
         </div>,
         document.body
       )}
+
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && createPortal(

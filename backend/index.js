@@ -166,18 +166,25 @@ app.delete('/api/transactions/:id', async (req, res) => {
   }
 });
 
-// DELETE ALL transactions for a user (Reset)
+// DELETE ALL transactions, debts, and savings for a user (Reset Data)
 app.delete('/api/transactions', async (req, res) => {
   try {
     const { userId } = req.query;
     if (!userId) return res.status(400).json({ error: 'userId is required' });
-    const result = await prisma.transactions.deleteMany({ where: { user_id: userId } });
-    res.status(200).json({ message: `Deleted ${result.count} transactions` });
+    
+    await prisma.$transaction([
+      prisma.transactions.deleteMany({ where: { user_id: userId } }),
+      prisma.debt.deleteMany({ where: { userId: userId } }),
+      prisma.savingsGoal.deleteMany({ where: { userId: userId } })
+    ]);
+
+    res.status(200).json({ message: 'All transactions and rotasi aset data reset successfully' });
   } catch (error) {
-    console.error('Error deleting all transactions:', error);
+    console.error('Error resetting all transactions:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
 
 
 // GET /api/metrics — excludes asset-rotation categories for clean income/expense reporting

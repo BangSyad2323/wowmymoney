@@ -12,7 +12,7 @@ const formatCurrency = (amount) => {
   }).format(amount);
 };
 
-export default function SavingsView({ user, apiBaseUrl }) {
+export default function SavingsView({ user, apiBaseUrl, onMetricsChanged }) {
   const [activeSubTab, setActiveSubTab] = useState('goals'); // 'goals' | 'history'
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -147,6 +147,7 @@ export default function SavingsView({ user, apiBaseUrl }) {
       setDepositAmount('');
       setSelectedGoal(null);
       await fetchGoals();
+      onMetricsChanged?.();
     } catch (err) {
       alert('Gagal memproses setoran.');
     } finally {
@@ -170,12 +171,14 @@ export default function SavingsView({ user, apiBaseUrl }) {
       setWithdrawReason('');
       setSelectedGoal(null);
       await fetchGoals();
+      onMetricsChanged?.();
     } catch (err) {
       alert(err.response?.data?.error || 'Gagal memproses pencairan.');
     } finally {
       setSubmitting(false);
     }
   };
+
 
   const openDeposit = (goal) => {
     setSelectedGoal(goal);

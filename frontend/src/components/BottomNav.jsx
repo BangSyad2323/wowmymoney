@@ -12,7 +12,7 @@ export default function BottomNav({ activeTab, onChange }) {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-t border-slate-200/60 pb-safe shadow-[0_-4px_20px_-15px_rgba(0,0,0,0.1)]">
-      <div className="max-w-md mx-auto flex justify-between items-center px-6 py-2">
+      <div className="max-w-md mx-auto flex items-center justify-start sm:justify-between px-4 py-2 overflow-x-auto no-scrollbar gap-2 sm:gap-0 scroll-smooth whitespace-nowrap">
         {tabs.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -20,7 +20,7 @@ export default function BottomNav({ activeTab, onChange }) {
             <button
               key={tab.id}
               onClick={() => onChange(tab.id)}
-              className="flex flex-col items-center justify-center w-16 pt-2 pb-1 transition-colors"
+              className="flex flex-col items-center justify-center min-w-[72px] sm:w-16 pt-2 pb-1 transition-colors shrink-0"
               aria-label={tab.label}
             >
               <div className={`p-1.5 rounded-xl transition-all duration-300 ${isActive ? 'bg-blue-100/80 text-blue-600 scale-110' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}>
@@ -36,3 +36,4 @@ export default function BottomNav({ activeTab, onChange }) {
     </div>
   );
 }
+

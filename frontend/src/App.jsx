@@ -130,6 +130,20 @@ function App() {
     }
   }, [fetchTransactions]);
 
+  const handleResetAllData = useCallback(async () => {
+    if (!user) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/api/transactions`, {
+        params: { userId: user.id }
+      });
+      await fetchTransactions();
+      alert("Semua data transaksi harian, utang-piutang, dan tabungan Anda berhasil dihapus!");
+    } catch (error) {
+      console.error("Failed to reset data:", error);
+      alert("Gagal menghapus data.");
+    }
+  }, [fetchTransactions, user]);
+
   // (Metrics calculation moved to backend for accuracy)
 
   // Memoized Chart Data
@@ -214,6 +228,7 @@ function App() {
               onLogout={handleLogout}
               onToggleKeywords={() => setShowKeywords(!showKeywords)} 
               onOpenGuide={() => setShowGuide(true)} 
+              onResetAll={handleResetAllData}
             />
             {showKeywords && (
               <div className="mt-6 animate-in fade-in slide-in-from-top-4">
