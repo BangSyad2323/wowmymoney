@@ -15,7 +15,7 @@ const formatDate = (d) =>
 const isOverdue = (dueDate, status) =>
   status === 'UNPAID' && dueDate && new Date(dueDate) < new Date();
 
-export default function DebtView({ user, apiBaseUrl, onMetricsChanged }) {
+export default function DebtView({ user, apiBaseUrl, onMetricsChanged, refreshKey }) {
   const [debts, setDebts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState('ALL'); // ALL | RECEIVABLE | PAYABLE
@@ -39,14 +39,16 @@ export default function DebtView({ user, apiBaseUrl, onMetricsChanged }) {
   const fetchDebts = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await axios.get(`${apiBaseUrl}/debts?userId=${user.id}`);
+      const res = await axios.get(`${apiBaseUrl}/debts?userId=${user.id}&_t=${Date.now()}`);
       setDebts(res.data.data);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [apiBaseUrl, user.id]);
+  // refreshKey from parent triggers re-fetch when global data changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiBaseUrl, user.id, refreshKey]);
 
   useEffect(() => { fetchDebts(); }, [fetchDebts]);
 

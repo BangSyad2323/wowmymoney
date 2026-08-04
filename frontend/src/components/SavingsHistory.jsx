@@ -17,7 +17,7 @@ const formatTime = (dateString) => {
   }).format(new Date(dateString));
 };
 
-export default function SavingsHistory({ user, apiBaseUrl }) {
+export default function SavingsHistory({ user, apiBaseUrl, refreshKey }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTabId, setSelectedTabId] = useState(null);
@@ -25,7 +25,8 @@ export default function SavingsHistory({ user, apiBaseUrl }) {
   useEffect(() => {
     const fetchLogs = async () => {
       try {
-        const res = await axios.get(`${apiBaseUrl}/savings/logs?userId=${user.id}`);
+        setLoading(true);
+        const res = await axios.get(`${apiBaseUrl}/savings/logs?userId=${user.id}&_t=${Date.now()}`);
         setLogs(res.data.data);
       } catch (err) {
         console.error(err);
@@ -34,7 +35,9 @@ export default function SavingsHistory({ user, apiBaseUrl }) {
       }
     };
     fetchLogs();
-  }, [apiBaseUrl, user.id]);
+  // refreshKey intentionally triggers re-fetch when parent mutates data
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiBaseUrl, user.id, refreshKey]);
 
   // Generate Month Tabs
   const tabs = useMemo(() => {

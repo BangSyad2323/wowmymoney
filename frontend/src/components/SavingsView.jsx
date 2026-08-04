@@ -12,7 +12,7 @@ const formatCurrency = (amount) => {
   }).format(amount);
 };
 
-export default function SavingsView({ user, apiBaseUrl, onMetricsChanged }) {
+export default function SavingsView({ user, apiBaseUrl, onMetricsChanged, refreshKey }) {
   const [activeSubTab, setActiveSubTab] = useState('goals'); // 'goals' | 'history'
   const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -32,18 +32,23 @@ export default function SavingsView({ user, apiBaseUrl, onMetricsChanged }) {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawReason, setWithdrawReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Bumped internally after any mutation so SavingsHistory and goals list re-fetch
+  const [localMutationKey, setLocalMutationKey] = useState(0);
+  const bumpLocal = () => setLocalMutationKey(k => k + 1);
 
   const fetchGoals = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await axios.get(`${apiBaseUrl}/savings?userId=${user.id}`);
+      const res = await axios.get(`${apiBaseUrl}/savings?userId=${user.id}&_t=${Date.now()}`);
       setGoals(res.data.data);
     } catch (err) {
       console.error('Failed to fetch savings:', err);
     } finally {
       setLoading(false);
     }
-  }, [user.id, apiBaseUrl]);
+  // refreshKey from parent also triggers re-fetch when global data changes (e.g. reset all)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id, apiBaseUrl, refreshKey]);
 
   useEffect(() => {
     fetchGoals();
@@ -126,6 +131,8 @@ export default function SavingsView({ user, apiBaseUrl, onMetricsChanged }) {
       setFormAmount('');
       setFormIcon('🎯');
       await fetchGoals();
+      bumpLocal();
+      onMetricsChanged?.();
     } catch (err) {
       alert('Gagal membuat target.');
     } finally {
@@ -147,6 +154,7 @@ export default function SavingsView({ user, apiBaseUrl, onMetricsChanged }) {
       setDepositAmount('');
       setSelectedGoal(null);
       await fetchGoals();
+      bumpLocal();
       onMetricsChanged?.();
     } catch (err) {
       alert('Gagal memproses setoran.');
@@ -171,6 +179,7 @@ export default function SavingsView({ user, apiBaseUrl, onMetricsChanged }) {
       setWithdrawReason('');
       setSelectedGoal(null);
       await fetchGoals();
+      bumpLocal();
       onMetricsChanged?.();
     } catch (err) {
       alert(err.response?.data?.error || 'Gagal memproses pencairan.');
@@ -219,7 +228,7 @@ export default function SavingsView({ user, apiBaseUrl, onMetricsChanged }) {
       </div>
 
       {activeSubTab === 'history' ? (
-        <SavingsHistory user={user} apiBaseUrl={apiBaseUrl} />
+        <SavingsHistory user={user} apiBaseUrl={apiBaseUrl} refreshKey={localMutationKey} />
       ) : (
         <>
           {/* Daily Banner */}

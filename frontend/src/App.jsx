@@ -149,6 +149,13 @@ function App() {
     }
   }, [fetchTransactions, user]);
 
+  // Universal data-changed handler: re-fetches metrics + transactions
+  // AND bumps mutationKey so ALL child subscribers (chart, history, summary) react instantly.
+  const handleDataChanged = useCallback(async () => {
+    await fetchTransactions();
+    setMutationKey(k => k + 1);
+  }, [fetchTransactions]);
+
   // (Metrics calculation moved to backend for accuracy)
 
   // Chart data is now fetched directly by DualChart component from /api/chart-data
@@ -196,14 +203,24 @@ function App() {
       case "savings":
         return (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <SavingsView user={user} apiBaseUrl={API_BASE_URL + '/api'} onMetricsChanged={fetchTransactions} />
+            <SavingsView
+              user={user}
+              apiBaseUrl={API_BASE_URL + '/api'}
+              onMetricsChanged={handleDataChanged}
+              refreshKey={mutationKey}
+            />
           </div>
         );
 
       case "debts":
         return (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <DebtView user={user} apiBaseUrl={API_BASE_URL + '/api'} onMetricsChanged={fetchTransactions} />
+            <DebtView
+              user={user}
+              apiBaseUrl={API_BASE_URL + '/api'}
+              onMetricsChanged={handleDataChanged}
+              refreshKey={mutationKey}
+            />
           </div>
         );
 
