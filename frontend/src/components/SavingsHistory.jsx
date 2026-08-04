@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
-import { ArrowUpCircle, ArrowDownCircle, Calendar, Clock, Info } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, Calendar, Clock, Info, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import axios from 'axios';
+import { createPortal } from 'react-dom';
 
 const formatCurrency = (amount) => {
   return new Intl.NumberFormat('id-ID', {
@@ -17,10 +18,26 @@ const formatTime = (dateString) => {
   }).format(new Date(dateString));
 };
 
-export default function SavingsHistory({ user, apiBaseUrl, refreshKey }) {
+export default function SavingsHistory({ user, apiBaseUrl, refreshKey, onLogDeleted }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTabId, setSelectedTabId] = useState(null);
+  const [deleteConfirmLog, setDeleteConfirmLog] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDelete = async (log) => {
+    try {
+      setDeleting(true);
+      await axios.delete(`${apiBaseUrl}/savings/logs/${log.id}`);
+      setDeleteConfirmLog(null);
+      onLogDeleted?.();
+    } catch (err) {
+      alert('Gagal menghapus transaksi tabungan.');
+      console.error(err);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     const fetchLogs = async () => {
@@ -167,10 +184,18 @@ export default function SavingsHistory({ user, apiBaseUrl, refreshKey }) {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-end shrink-0 pl-11 sm:pl-0">
+                    <div className="flex items-center justify-end gap-3 shrink-0 pl-11 sm:pl-0">
                       <span className={`font-bold whitespace-nowrap text-sm sm:text-base ${log.type === 'DEPOSIT' ? 'text-emerald-600' : 'text-rose-600'}`}>
                         {log.type === 'DEPOSIT' ? '+' : '-'}{formatCurrency(log.amount)}
                       </span>
+                      <button 
+                        onClick={() => setDeleteConfirmLog(log)}
+                        disabled={deleting}
+                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-rose-500/50 shrink-0"
+                        aria-label="Hapus transaksi tabungan"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -179,6 +204,43 @@ export default function SavingsHistory({ user, apiBaseUrl, refreshKey }) {
           ))
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmLog && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-4 text-rose-600">
+              <div className="p-3 bg-rose-100 rounded-full">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h4 className="text-lg font-bold text-slate-800">Hapus Transaksi?</h4>
+            </div>
+            <p className="text-slate-600 text-sm mb-6">
+              Apakah Anda yakin ingin menghapus transaksi tabungan sebesar <strong>{formatCurrency(deleteConfirmLog.amount)}</strong> untuk target <strong>"{deleteConfirmLog.savingsGoal.title}"</strong>?
+              <br/><br/>
+              Ini akan menyesuaikan kembali saldo tabungan dan saldo utama/dompet Anda secara otomatis.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button 
+                onClick={() => setDeleteConfirmLog(null)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors focus:outline-none"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={() => confirmDelete(deleteConfirmLog)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 shadow-sm shadow-rose-600/20 rounded-lg transition-colors focus:outline-none flex items-center gap-1.5"
+              >
+                {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
+                Ya, Hapus
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

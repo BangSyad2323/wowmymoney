@@ -228,7 +228,16 @@ export default function SavingsView({ user, apiBaseUrl, onMetricsChanged, refres
       </div>
 
       {activeSubTab === 'history' ? (
-        <SavingsHistory user={user} apiBaseUrl={apiBaseUrl} refreshKey={localMutationKey} />
+        <SavingsHistory 
+          user={user} 
+          apiBaseUrl={apiBaseUrl} 
+          refreshKey={localMutationKey} 
+          onLogDeleted={async () => {
+            await fetchGoals();
+            bumpLocal();
+            onMetricsChanged?.();
+          }}
+        />
       ) : (
         <>
           {/* Daily Banner */}

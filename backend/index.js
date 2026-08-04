@@ -679,6 +679,70 @@ app.post('/api/savings/:id/withdraw', async (req, res) => {
   }
 });
 
+
+// DELETE a savings log (Undo deposit or withdrawal)
+app.delete('/api/savings/logs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Find the log
+      const log = await tx.savingsLog.findUnique({
+        where: { id },
+        include: { savingsGoal: true }
+      });
+      if (!log) throw new Error('Log not found');
+
+      const goal = log.savingsGoal;
+      const amount = log.amount;
+
+      // 2. Adjust currentAmount based on log type
+      if (log.type === 'DEPOSIT') {
+        const newAmount = goal.currentAmount - amount;
+        await tx.savingsGoal.update({
+          where: { id: goal.id },
+          data: { currentAmount: newAmount < 0 ? 0 : newAmount }
+        });
+      } else if (log.type === 'WITHDRAW') {
+        await tx.savingsGoal.update({
+          where: { id: goal.id },
+          data: { currentAmount: goal.currentAmount + amount }
+        });
+      }
+
+      // 3. Find corresponding wallet transaction and delete it
+      const txAmount = Math.round(amount);
+      const matchedTx = await tx.transactions.findFirst({
+        where: {
+          user_id: goal.userId,
+          amount: txAmount,
+          category: log.type === 'DEPOSIT' ? 'Tabungan' : 'Pencairan Tabungan',
+          created_at: {
+            gte: new Date(log.createdAt.getTime() - 15000),
+            lte: new Date(log.createdAt.getTime() + 15000)
+          }
+        }
+      });
+      if (matchedTx) {
+        await tx.transactions.delete({ where: { id: matchedTx.id } });
+      }
+
+      // 4. Delete the log
+      await tx.savingsLog.delete({ where: { id } });
+
+      return { logId: id, matchedTxDeleted: !!matchedTx };
+    });
+
+    res.status(200).json({ message: 'Savings transaction deleted successfully', data: result });
+  } catch (error) {
+    if (error.message === 'Log not found') {
+      return res.status(404).json({ error: 'Savings log not found' });
+    }
+    console.error('Error deleting savings log:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET all Savings Logs for a user
 app.get('/api/savings/logs', async (req, res) => {
   try {

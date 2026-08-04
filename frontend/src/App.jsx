@@ -31,7 +31,13 @@ function App() {
   });
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState("home");
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('fintext_active_tab') || 'home';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fintext_active_tab', activeTab);
+  }, [activeTab]);
 
   // Data States
   const [transactions, setTransactions] = useState([]);
